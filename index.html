@@ -699,22 +699,9 @@ select:focus-visible, .txt:focus-visible { outline-offset: 1px; }
     sel.value = ok ? prev : '0';
   }
 
-  function armDelete(btn, action) {
-    var armed = false, t;
+  function armDelete(btn, action, msg) {
     btn.addEventListener('click', function () {
-      if (!armed) {
-        armed = true;
-        btn.textContent = '¿Borrar?';
-        btn.classList.add('arm');
-        t = setTimeout(function () {
-          armed = false;
-          btn.textContent = '×';
-          btn.classList.remove('arm');
-        }, 3000);
-        return;
-      }
-      clearTimeout(t);
-      action();
+      if (window.confirm(msg || '¿Seguro que querés borrarlo?')) action();
     });
   }
 
@@ -787,7 +774,7 @@ select:focus-visible, .txt:focus-visible { outline-offset: 1px; }
       var del = el('button', 'del', '×');
       del.type = 'button';
       del.setAttribute('aria-label', 'Quitar ' + (it.nombre || 'gasto') + ' del plan');
-      del.addEventListener('click', function () {
+      armDelete(del, function () {
         state.gastos.forEach(function (g) { if (g.cat === it.id) g.cat = 0; });
         state.traspasos.forEach(function (t) {
           if (t.de === it.id) t.de = 0;
@@ -797,7 +784,7 @@ select:focus-visible, .txt:focus-visible { outline-offset: 1px; }
         state.items = state.items.filter(function (x) { return x !== it; });
         buildItems();
         save();
-      });
+      }, '¿Seguro que querés quitar "' + (it.nombre || 'esta categoría') + '" del plan? Sus gastos pasan a Diversión y otros.');
       bot.append(seg, wrap, sh, del);
 
       row.append(top, bot);
@@ -936,7 +923,7 @@ select:focus-visible, .txt:focus-visible { outline-offset: 1px; }
         save();
         animNext = true;
         update();
-      });
+      }, '¿Seguro que querés borrar este gasto de ' + money(g.monto) + (g.nota ? ' (' + g.nota + ')' : '') + '?');
       row.append(badge(cn, catColor(g.cat)), tx, amt, del);
       box.append(row);
     });
@@ -1007,7 +994,7 @@ select:focus-visible, .txt:focus-visible { outline-offset: 1px; }
           state.traspasos = state.traspasos.filter(function (x) { return x !== t; });
           save();
           update();
-        });
+        }, '¿Seguro que querés borrar este traspaso de ' + money(t.monto) + '?');
         row.append(tx, amt, del);
         box.append(row);
       });
