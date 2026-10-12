@@ -391,6 +391,17 @@ select:focus-visible, .txt:focus-visible { outline-offset: 1px; }
 
     <p class="note">Todo se calcula sobre el resto (sueldo menos deudas fijas): si cobrás más o menos, cada categoría se ajusta en proporción. Lo que no asignás queda como diversión y otros. Si te pasás en una categoría, ese exceso se descuenta de diversión. El plan, los gastos y los meses cerrados se guardan en este dispositivo.</p>
 
+    <section class="card">
+      <h2>Copia de seguridad</h2>
+      <p class="note" style="margin:0 0 10px">Descargá un archivo con todos tus datos y guardalo en Drive o mandátelo por WhatsApp. Si cambiás de celular o se borran los datos, lo restaurás desde acá.</p>
+      <div class="reset">
+        <button class="btn" id="bkExport" type="button">Descargar copia</button>
+        <button class="btn" id="bkImport" type="button">Restaurar copia</button>
+        <input type="file" id="bkFile" accept=".json,application/json" hidden>
+      </div>
+      <p class="note" id="bkMsg" style="margin:10px 0 0" aria-live="polite"></p>
+    </section>
+
     <div class="reset">
       <button class="btn" id="resetBtn" type="button">Restablecer todo</button>
       <span id="resetAsk" hidden class="reset">
@@ -1368,6 +1379,47 @@ select:focus-visible, .txt:focus-visible { outline-offset: 1px; }
     save();
     $('resetAsk').hidden = true;
     $('resetBtn').hidden = false;
+  });
+
+  $('bkExport').addEventListener('click', function () {
+    try {
+      var blob = new Blob([JSON.stringify({ app: 'mis-ingresos', v: 1, fecha: new Date().toISOString(), state: state })], { type: 'application/json' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'mis-ingresos-' + today() + '.json';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(function () { URL.revokeObjectURL(a.href); }, 2000);
+      $('bkMsg').textContent = 'Copia descargada. Guardala en un lugar seguro.';
+    } catch (e) { $('bkMsg').textContent = 'No se pudo descargar la copia.'; }
+  });
+  $('bkImport').addEventListener('click', function () { $('bkFile').click(); });
+  $('bkFile').addEventListener('change', function () {
+    var f = this.files && this.files[0];
+    this.value = '';
+    if (!f) return;
+    var r = new FileReader();
+    r.onload = function () {
+      try {
+        var o = JSON.parse(r.result);
+        var s = o && o.state ? o.state : o;
+        if (!s || !Array.isArray(s.items) || typeof s.sueldo !== 'number') throw new Error('x');
+        if (!confirm('Esto reemplaza todos los datos actuales por los de la copia. ¿Continuar?')) return;
+        localStorage.setItem(KEY, JSON.stringify(s));
+        state = load();
+        shownHero = null;
+        $('sueldo').value = nf.format(state.sueldo);
+        $('deudas').value = nf.format(state.deudas);
+        $('closePanel').hidden = true;
+        $('finMsg').textContent = '';
+        buildItems();
+        save();
+        $('bkMsg').textContent = 'Copia restaurada.';
+        toast('Copia restaurada');
+      } catch (e) { $('bkMsg').textContent = 'Ese archivo no es una copia válida de Mis Ingresos.'; }
+    };
+    r.readAsText(f);
   });
 
   buildItems();
