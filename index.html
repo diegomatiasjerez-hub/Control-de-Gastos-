@@ -211,6 +211,14 @@ select:focus-visible, .txt:focus-visible { outline-offset: 1px; }
 .msg.err { color: var(--danger); }
 .note { margin: 0; font-size: 13.5px; color: var(--muted); }
 .empty { margin: 0; color: var(--muted); }
+.sheet-tabs { display: flex; margin-bottom: 12px; width: 100%; }
+.sheet-tabs button { flex: 1; font-size: 20px; }
+.emp-sum { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; margin: 0; font-size: 15px; }
+.emp-sum strong { font: 700 22px var(--f-display); font-variant-numeric: tabular-nums; text-align: right; }
+.emp-sum .em-big { color: var(--ok); }
+.emp-prev { margin: 0; padding: 10px 12px; border: 1px dashed var(--edge); border-radius: 3px; font-size: 14px; color: var(--muted); }
+.emp-prev b { color: var(--ink); }
+.lbl2 { font-size: 13px; color: var(--muted); margin: 0 0 -4px; }
 .check { display: flex; align-items: flex-start; gap: 10px; }
 .check input { flex: none; width: 20px; height: 20px; margin: 1px 0 0; accent-color: var(--blood2); }
 .reset { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
@@ -317,6 +325,14 @@ select:focus-visible, .txt:focus-visible { outline-offset: 1px; }
       <p class="note" id="paceNote"></p>
       <div class="prog" id="prog"></div>
       <div class="field total"><span>Gastado en el mes</span><strong id="gastado">$ 0</strong></div>
+    </section>
+
+    <section class="card" id="empCard">
+      <h2>Emprendimiento</h2>
+      <p class="note" id="empNote"></p>
+      <div class="emp-sum" id="empSum"></div>
+      <div id="empList"></div>
+      <button class="btn" id="empBtn" type="button">Anotar una venta</button>
     </section>
 
     <section class="card">
@@ -434,6 +450,23 @@ select:focus-visible, .txt:focus-visible { outline-offset: 1px; }
 <div class="sheet-bg" id="sheetBg" hidden></div>
 <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle" hidden>
   <h2 id="sheetTitle">Anotar un gasto</h2>
+  <div class="seg sheet-tabs" role="group" aria-label="Qué querés anotar">
+    <button type="button" id="tabGasto" aria-pressed="true">Gasto</button>
+    <button type="button" id="tabVenta" aria-pressed="false">Venta</button>
+  </div>
+  <form id="ventaForm" class="form" autocomplete="off" hidden>
+    <p class="lbl2">Lo que cobraste por la venta</p>
+    <label class="inwrap big" for="vMonto"><span class="pre">$</span><input id="vMonto" type="text" inputmode="numeric" placeholder="0" aria-label="Monto de la venta"></label>
+    <p class="lbl2">Materiales que usaste (se restan)</p>
+    <label class="inwrap" for="vMat"><span class="pre">$</span><input id="vMat" type="text" inputmode="numeric" placeholder="0" aria-label="Costo de materiales"></label>
+    <input id="vNota" class="txt" type="text" placeholder="Qué vendiste (opcional)" aria-label="Detalle de la venta" maxlength="60">
+    <p class="emp-prev" id="vPrev" aria-live="polite"></p>
+    <p class="msg" id="vMsg" role="status"></p>
+    <div class="form-row">
+      <button class="btn primary grow" type="submit">Anotar venta</button>
+      <button class="btn" id="sheetClose2" type="button">Cancelar</button>
+    </div>
+  </form>
   <form id="gastoForm" class="form" autocomplete="off">
     <label class="inwrap big" for="gMonto"><span class="pre">$</span><input id="gMonto" type="text" inputmode="numeric" placeholder="0" aria-label="Monto del gasto"></label>
     <select id="gCat" aria-label="Categoría del gasto"></select>
@@ -454,8 +487,11 @@ select:focus-visible, .txt:focus-visible { outline-offset: 1px; }
   var DEFAULTS = {
     sueldo: 630000,
     deudas: 300000,
-    nextId: 6,
+    nextId: 7,
     nextGid: 1,
+    nextVid: 1,
+    dz: 10,
+    ventas: [],
     gastos: [],
     nextTid: 1,
     traspasos: [],
@@ -467,7 +503,8 @@ select:focus-visible, .txt:focus-visible { outline-offset: 1px; }
       { id: 2, nombre: 'Ahorro', tipo: 'pct', valor: 5, k: 2 },
       { id: 3, nombre: 'Mercadería', tipo: 'pct', valor: 45.454545, k: 3 },
       { id: 4, nombre: 'Colectivo', tipo: 'pct', valor: 24.242424, k: 4 },
-      { id: 5, nombre: 'Abono celular', tipo: 'pct', valor: 4.515152, k: 5 }
+      { id: 5, nombre: 'Abono celular', tipo: 'pct', valor: 4.515152, k: 5 },
+      { id: 6, nombre: 'Emprendimiento', tipo: 'fijo', valor: 0, k: 6, emp: true }
     ]
   };
   var MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
@@ -493,6 +530,15 @@ select:focus-visible, .txt:focus-visible { outline-offset: 1px; }
           if (!Array.isArray(o.arrastres)) o.arrastres = [];
           if (!Array.isArray(o.historial)) o.historial = [];
           if (typeof o.mes !== 'string') o.mes = today().slice(0, 7);
+          if (!Array.isArray(o.ventas)) o.ventas = [];
+          if (typeof o.nextVid !== 'number') o.nextVid = 1;
+          if (typeof o.dz !== 'number') o.dz = 10;
+          if (!o.items.some(function (x) { return x.emp; })) {
+            var maxId = o.items.reduce(function (m, x) { return Math.max(m, x.id || 0); }, 0);
+            var nid = Math.max(o.nextId || 0, maxId + 1);
+            o.items.push({ id: nid, nombre: 'Emprendimiento', tipo: 'fijo', valor: 0, k: o.items.reduce(function (m, x) { return Math.max(m, x.k || 0); }, 0) + 1, emp: true });
+            o.nextId = nid + 1;
+          }
           if (!o.prop) {
             // Una sola vez: los montos fijos pasan a porcentaje exacto del resto, para que todo escale con el sueldo.
             var baseMig = Math.max(o.sueldo - o.deudas, 0);
@@ -554,6 +600,9 @@ select:focus-visible, .txt:focus-visible { outline-offset: 1px; }
   function gastosMes() {
     return state.gastos.filter(function (g) { return (g.mes || String(g.fecha).slice(0, 7)) === state.mes; });
   }
+  function ventasMes() {
+    return state.ventas.filter(function (v) { return (v.mes || String(v.fecha).slice(0, 7)) === state.mes; });
+  }
   function traspasosMes() {
     return state.traspasos.filter(function (t) { return (t.mes || String(t.fecha).slice(0, 7)) === state.mes; });
   }
@@ -582,6 +631,7 @@ select:focus-visible, .txt:focus-visible { outline-offset: 1px; }
     swap: '<path d="M5 8h13M14.5 4.5L18 8l-3.5 3.5M19 16H6M9.5 12.5L6 16l3.5 3.5"/>',
     sliders: '<path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/>',
     calendar: '<rect x="4" y="5.5" width="16" height="14.5" rx="2"/><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4"/>',
+    store: '<path d="M4 9l1.5-5h13L20 9"/><path d="M4 9a2.7 2.7 0 0 0 5.3 0 2.7 2.7 0 0 0 5.4 0A2.7 2.7 0 0 0 20 9"/><path d="M5.5 12v8h13v-8"/><path d="M10 20v-4.5h4V20"/>',
     plus: '<path d="M12 5v14M5 12h14"/>'
   };
   function svgIcon(name, size) {
@@ -589,6 +639,7 @@ select:focus-visible, .txt:focus-visible { outline-offset: 1px; }
   }
   function iconName(nombre) {
     var n = String(nombre || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+    if (/empren|negoc|venta|tienda|3d|aloha/.test(n)) return 'store';
     if (/diezm/.test(n)) return 'coin';
     if (/ahorr/.test(n)) return 'chest';
     if (/merc|super|comida|compra|almac/.test(n)) return 'cart';
@@ -623,11 +674,19 @@ select:focus-visible, .txt:focus-visible { outline-offset: 1px; }
       netBy[t.a] = (netBy[t.a] || 0) + t.monto;
       netBy[t.de] = (netBy[t.de] || 0) - t.monto;
     });
+    var vm = ventasMes();
+    var ventasTot = vm.reduce(function (a, v) { return a + v.monto; }, 0);
+    var matTot = vm.reduce(function (a, v) { return a + (v.mat || 0); }, 0);
+    var ganancia = Math.max(ventasTot - matTot, 0);
+    var dzExtra = Math.round(ganancia * (state.dz || 0) / 100);
+    var empExtra = ganancia - dzExtra;
+    var dzItem = state.items.filter(function (x) { return !x.emp && /diezm/i.test(x.nombre || ''); })[0];
     var rows = state.items.map(function (it) {
-      var monto = it.tipo === 'pct' ? Math.round(base * it.valor / 100) : Math.round(it.valor);
+      var monto = it.emp ? 0 : (it.tipo === 'pct' ? Math.round(base * it.valor / 100) : Math.round(it.valor));
+      var extra = it.emp ? empExtra : (it === dzItem ? dzExtra : 0);
       var net = netBy[it.id] || 0;
       var carry = carryBy[it.id] || 0;
-      return { it: it, monto: monto, used: usedBy[it.id] || 0, net: net, carry: carry, budget: monto + net + carry };
+      return { it: it, monto: monto, extra: extra, used: usedBy[it.id] || 0, net: net, carry: carry, budget: monto + extra + net + carry };
     });
     var asignado = rows.reduce(function (a, r) { return a + r.monto; }, 0);
     var excesos = rows.reduce(function (a, r) { return a + Math.max(0, r.used - r.budget); }, 0);
@@ -641,7 +700,8 @@ select:focus-visible, .txt:focus-visible { outline-offset: 1px; }
     return {
       resto: resto, rows: rows, asignado: asignado, sobrante: sobrante,
       usedDiv: usedDiv, excesos: excesos, gm: gm, total: total,
-      netDiv: netDiv, carryDiv: carryDiv, budgetDiv: budgetDiv, libre: libre, tm: tm
+      netDiv: netDiv, carryDiv: carryDiv, budgetDiv: budgetDiv, libre: libre, tm: tm,
+      vm: vm, ventasTot: ventasTot, matTot: matTot, ganancia: ganancia, dzExtra: dzExtra, empExtra: empExtra, dzItem: dzItem
     };
   }
   function remaining(c, cat) {
@@ -729,6 +789,22 @@ select:focus-visible, .txt:focus-visible { outline-offset: 1px; }
       top.append(bdg, name, monto);
 
       var bot = el('div', 'item-bot');
+      if (it.emp) {
+        var wrapE = el('span', 'inwrap');
+        var inE = el('input');
+        inE.type = 'text';
+        inE.inputMode = 'decimal';
+        inE.autocomplete = 'off';
+        inE.setAttribute('aria-label', 'Porcentaje de la ganancia que va a Diezmo');
+        wrapE.append(inE, el('span', 'suf', '% de la ganancia va a Diezmo'));
+        bindPct(inE, function () { return state.dz; }, function (v) { state.dz = v; });
+        var shE = el('span', 'share', '');
+        bot.append(wrapE, shE);
+        row.append(top, bot);
+        box.append(row);
+        refs[it.id] = { monto: monto, share: shE };
+        return;
+      }
       var seg = el('div', 'seg');
       seg.setAttribute('role', 'group');
       seg.setAttribute('aria-label', 'Tipo de valor');
@@ -932,6 +1008,50 @@ select:focus-visible, .txt:focus-visible { outline-offset: 1px; }
     }
   }
 
+  function renderEmp(c) {
+    var sum = $('empSum');
+    sum.innerHTML = '';
+    function line(label, val, cls) {
+      sum.append(el('span', null, label));
+      var s = el('strong', cls || null, val);
+      sum.append(s);
+    }
+    var list = $('empList');
+    list.innerHTML = '';
+    if (!c.vm.length) {
+      $('empNote').textContent = 'Anotá cada venta con lo que gastaste en materiales. De la ganancia, el ' + pf2.format(state.dz) + '% va a Diezmo y el resto queda en Emprendimiento.';
+      list.append(el('p', 'empty', 'Todavía no anotaste ventas este mes.'));
+      return;
+    }
+    $('empNote').textContent = 'Ventas de ' + mesName(state.mes) + '. La ganancia es lo vendido menos los materiales.';
+    line('Vendido', money(c.ventasTot));
+    line('Materiales', '− ' + money(c.matTot));
+    line('Ganancia', money(c.ganancia));
+    line('Diezmo (' + pf2.format(state.dz) + '%)', money(c.dzExtra));
+    line('Queda para el emprendimiento', money(c.empExtra), 'em-big');
+    var sorted = c.vm.slice().sort(function (a, b) {
+      if (a.fecha !== b.fecha) return a.fecha < b.fecha ? 1 : -1;
+      return b.id - a.id;
+    });
+    sorted.slice(0, 10).forEach(function (v) {
+      var row = el('div', 'mov');
+      var tx = el('div', 'txt2');
+      tx.append(el('span', 't1', v.nota || 'Venta'), el('span', 't2', fechaCorta(v.fecha) + ' · materiales ' + money(v.mat || 0)));
+      var amt = el('span', 'amt', money(v.monto - (v.mat || 0)));
+      var del = el('button', 'del', '×');
+      del.type = 'button';
+      del.setAttribute('aria-label', 'Borrar esta venta');
+      armDelete(del, function () {
+        state.ventas = state.ventas.filter(function (x) { return x !== v; });
+        save();
+        update();
+      }, '¿Seguro que querés borrar esta venta de ' + money(v.monto) + (v.nota ? ' (' + v.nota + ')' : '') + '?');
+      row.append(badge('emprendimiento', 'var(--k6)'), tx, amt, del);
+      list.append(row);
+    });
+    if (sorted.length > 10) list.append(el('p', 'note', 'Mostrando las últimas 10 de ' + sorted.length + '. Los totales cuentan todas.'));
+  }
+
   function refreshTransfer(c) {
     var de = $('tDe');
     var pDe = de.value, pA = $('tA').value;
@@ -1132,8 +1252,13 @@ select:focus-visible, .txt:focus-visible { outline-offset: 1px; }
     c.rows.forEach(function (r) {
       var f = refs[r.it.id];
       if (!f) return;
-      f.monto.textContent = money(r.monto);
-      f.share.textContent = share(r.monto);
+      if (r.it.emp) {
+        f.monto.textContent = money(r.extra);
+        f.share.textContent = 'este mes (ventas − materiales − diezmo)';
+      } else {
+        f.monto.textContent = money(r.monto);
+        f.share.textContent = share(r.monto) + (r.extra ? ' · + ' + money(r.extra) + ' del emprendimiento' : '');
+      }
     });
     var segs = [{ n: 'Deudas fijas', m: state.deudas, col: 'var(--c-deuda)' }];
     c.rows.forEach(function (r) {
@@ -1183,6 +1308,7 @@ select:focus-visible, .txt:focus-visible { outline-offset: 1px; }
     renderDonut(c);
     renderProgress(c);
     renderMovs(c);
+    renderEmp(c);
     renderTraspasos(c);
     renderFin();
     renderHist();
@@ -1206,11 +1332,32 @@ select:focus-visible, .txt:focus-visible { outline-offset: 1px; }
     m.textContent = text;
     m.classList.toggle('err', !!err);
   }
-  function openSheet() {
+  var sheetMode = 'gasto';
+  function setMode(m) {
+    sheetMode = m;
+    $('tabGasto').setAttribute('aria-pressed', m === 'gasto');
+    $('tabVenta').setAttribute('aria-pressed', m === 'venta');
+    $('gastoForm').hidden = m !== 'gasto';
+    $('ventaForm').hidden = m !== 'venta';
+    $('sheetTitle').textContent = m === 'gasto' ? 'Anotar un gasto' : 'Anotar una venta';
+    $('gMsg').textContent = '';
+    $('vMsg').textContent = '';
+    if (m === 'venta') ventaPrev();
+  }
+  function ventaPrev() {
+    var v = parseMoney($('vMonto').value), m = parseMoney($('vMat').value);
+    var g = v - m;
+    if (!v && !m) { $('vPrev').textContent = 'Escribí la venta y los materiales para ver cuánto queda.'; return; }
+    if (g <= 0) { $('vPrev').textContent = 'Los materiales igualan o superan lo vendido: esta venta no suma ganancia.'; return; }
+    var d = Math.round(g * state.dz / 100);
+    $('vPrev').innerHTML = 'Ganancia <b>' + money(g) + '</b> · Diezmo <b>' + money(d) + '</b> · Queda <b>' + money(g - d) + '</b>';
+  }
+  function openSheet(mode) {
     setMsg('');
+    setMode(mode === 'venta' ? 'venta' : 'gasto');
     $('sheetBg').hidden = false;
     $('sheet').hidden = false;
-    $('gMonto').focus();
+    (sheetMode === 'venta' ? $('vMonto') : $('gMonto')).focus();
   }
   function closeSheet() {
     $('sheet').hidden = true;
@@ -1232,7 +1379,37 @@ select:focus-visible, .txt:focus-visible { outline-offset: 1px; }
   Array.prototype.forEach.call(document.querySelectorAll('.nav [data-view]'), function (b) {
     b.addEventListener('click', function () { showView(b.getAttribute('data-view')); });
   });
-  $('fab').addEventListener('click', openSheet);
+  $('fab').addEventListener('click', function () { openSheet(sheetMode); });
+  $('empBtn').addEventListener('click', function () { openSheet('venta'); });
+  $('tabGasto').addEventListener('click', function () { setMode('gasto'); $('gMonto').focus(); });
+  $('tabVenta').addEventListener('click', function () { setMode('venta'); $('vMonto').focus(); });
+  $('sheetClose2').addEventListener('click', closeSheet);
+  ['vMonto', 'vMat'].forEach(function (id) {
+    $(id).addEventListener('input', function () {
+      $(id).value = $(id).value.replace(/\D/g, '');
+      ventaPrev();
+    });
+  });
+  $('ventaForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var monto = parseMoney($('vMonto').value);
+    var mat = parseMoney($('vMat').value);
+    if (!monto) {
+      $('vMsg').textContent = 'Escribí cuánto cobraste por la venta.';
+      $('vMsg').classList.add('err');
+      $('vMonto').focus();
+      return;
+    }
+    state.ventas.push({ id: state.nextVid++, monto: monto, mat: mat, nota: $('vNota').value.trim(), fecha: today(), mes: state.mes });
+    $('vMonto').value = '';
+    $('vMat').value = '';
+    $('vNota').value = '';
+    save();
+    closeSheet();
+    showView('inicio');
+    var g = Math.max(monto - mat, 0), d = Math.round(g * state.dz / 100);
+    toast('Venta anotada: ganancia ' + money(g) + ', ' + money(d) + ' a Diezmo.');
+  });
   $('sheetClose').addEventListener('click', closeSheet);
   $('sheetBg').addEventListener('click', closeSheet);
   document.addEventListener('keydown', function (e) {
